@@ -3,12 +3,15 @@
 
 import sys
 
-# Data structures for 2SAT
-adj = {}
-adjInv = {}
-visited = {}
-visitedInv = {}
-scc = {}
+
+def is_neg(var):
+    return var[0] == '-'
+
+
+def neg(var):
+    if is_neg(var):
+        return var[1:]
+    return '-' + var
 
 
 def add_edge(a, b):
@@ -61,9 +64,20 @@ def dfs3(i):
 
 
 def solve_2sat(formula):
+    global adj
+    global adjInv
+    global visited
+    global visitedInv
+    global scc
     global s
-    s = []
     global counter
+
+    adj = {}
+    adjInv = {}
+    visited = {}
+    visitedInv = {}
+    scc = {}
+    s = []
     counter = 1
 
     for i in range(len(formula)):
@@ -174,6 +188,188 @@ def solve_2sat(formula):
     return assignment
 
 
+def STAND_check(formula, assignment):
+    if len(formula) == 0:
+        return "yes"
+
+    all_true = True
+    for clause in formula:
+        if len(clause) == 0:
+            return "no"
+
+        any_true = False
+        all_false = True
+        for var in clause:
+            if var not in assignment:
+                all_false = False
+                continue
+
+            any_true = any_true or assignment[var]
+            all_false = all_false and not assignment[var]
+
+        all_true = all_true and any_true
+        if all_false:
+            return "no"
+
+    if all_true:
+        return "yes"
+
+    return "maybe"
+
+
+def STAND_step(formula, assignment, annihilated):
+    newFormula = []
+    for clause in formula:
+        newClause = []
+        for var in clause:
+            if var not in newClause:
+                newClause.append(var)
+        newFormula.append(newClause)
+    formula = newFormula
+
+    i = 0
+    while i < len(formula):
+        j = 0
+        while j < len(formula[i]):
+            if (formula[i][j] in assignment and assignment[formula[i][j]]) \
+                    or (neg(formula[i][j]) in formula[i]):
+                for var in formula[i]:
+                    if var not in assignment:
+                        present = False
+                        for clause2 in formula:
+                            if clause2 == formula[i]:
+                                continue
+                            for var2 in clause2:
+                                if var == var2 or var == neg(var2):
+                                    present = True
+                                    break
+                            if present:
+                                break
+                        if not present:
+                            annihilated.append(var)
+               # if formula[i][j] in assignment and assignment[formula[i][j]]:
+               #     print(i, "- getting rid of clause", formula[i], "because", formula[i][j], "is", assignment[formula[i][j]])
+               # else:
+               #     print(i, "- getting rid of clause", formula[i], "because", formula[i][j], "and", neg(formula[i][j]), "are in it")
+                formula = formula[:i] + formula[(i + 1):]
+                i -= 1
+                return [formula, assignment, annihilated]
+            elif formula[i][j] in assignment and not assignment[formula[i][j]]:
+                #print(i, j, formula[i], "- getting rid of literal", formula[i][j], "because it equals", assignment[formula[i][j]], assignment)
+                formula[i] = formula[i][:j] + formula[i][(j + 1):]
+                j -= 1
+                return [formula, assignment, annihilated]
+
+            j += 1
+        i += 1
+
+    counts = {}
+    i = 0
+    for clause in formula:
+        if len(clause) == 1:
+            var = clause[0]
+            assignment[var] = True
+            assignment[neg(var)] = False
+            #print(i, clause, "- assigning", var, "to", True)
+            return [formula, assignment, annihilated]
+        for var in clause:
+            if var not in counts:
+                counts[var] = 0
+            counts[var] += 1
+        i += 1
+
+    for var in counts:
+        if var not in assignment and neg(var) not in counts:
+            assignment[var] = True
+            #print("Assigning", var, "to", True, "because there is no", neg(var))
+            return [formula, assignment, annihilated]
+
+    return [formula, assignment, annihilated]
+
+
+def STAND(formula, assignment):
+    original_formula = formula.copy()
+
+    old_assignment = assignment.copy()
+    for var in old_assignment:
+        if neg(var) in assignment and assignment[neg(var)] == assignment[var]:
+            return ["no", assignment]
+        assignment[neg(var)] = not assignment[var]
+
+    old_formula = []
+    old_assignment = []
+    annihilated = []
+    old_annihilated = []
+    while old_assignment != assignment or old_formula != formula or old_annihilated != annihilated:
+        #print(old_assignment != assignment, old_formula != formula, old_annihilated != annihilated)
+        #print("A:", annihilated)
+        if len(formula) == 0:
+            #print("formula is empty")
+            for var in annihilated:
+                if var not in assignment:
+                    assignment[var] = not is_neg(var)
+                    assignment[neg(var)] = is_neg(var)
+            return ["yes", assignment]
+
+        for clause in formula:
+            if len(clause) == 0:
+                #print("clause is empty", formula)
+                for var in annihilated:
+                    if var not in assignment:
+                        assignment[var] = not is_neg(var)
+                        assignment[neg(var)] = is_neg(var)
+                return ["no", assignment]
+
+        is_2sat = True
+        for clause in formula:
+            if len(clause) > 2:
+                is_2sat = False
+        if is_2sat:
+            sat_res = solve_2sat(formula)
+
+            for var in annihilated:
+                if var not in assignment:
+                    assignment[var] = not is_neg(var)
+                    assignment[neg(var)] = is_neg(var)
+
+            #print("SAT Formula:", formula)
+            #print("SAT:", sat_res)
+
+            if sat_res:
+                for var in sat_res:
+                    assignment[var] = sat_res[var]
+                return ["yes", assignment]
+            else:
+                return ["no", assignment]
+
+        old_formula = formula.copy()
+        old_assignment = assignment.copy()
+        old_annihilated = annihilated.copy()
+
+        assgn_copy = assignment.copy()
+        for var in assgn_copy:
+            if neg(var) in assignment and assignment[neg(var)] == assignment[var]:
+                for var in annihilated:
+                    if var not in assignment:
+                        assignment[var] = True
+                return ["no", assignment]
+            assignment[neg(var)] = not assignment[var]
+
+        res = STAND_step(formula, assignment, annihilated)
+        formula = res[0]
+        assignment = res[1]
+        annihilated = res[2]
+
+    for var in annihilated:
+        if var not in assignment:
+            assignment[var] = not is_neg(var)
+            assignment[neg(var)] = is_neg(var)
+
+    #print(formula)
+    #print("A:", annihilated)
+    return [STAND_check(original_formula, assignment), assignment]
+
+
 def main(args):
     line = input()
     formula = [clause.split(",") for clause in line.split(";")]
@@ -196,5 +392,31 @@ def main(args):
         print("no")
     print("$")
 
+    line = input()
+    formula = [clause.split(",") for clause in line.split(";")]
+    line = input()
+    assignment = {}
+    for a in line.split(","):
+        spl = a.split("=")
+        assignment[spl[0]] = True if spl[1] == "T" else False
+    stand_sol = STAND(formula, assignment)
+
+    #print(stand_sol)
+    print(stand_sol[0])
+    if stand_sol[0] != "no":
+        vs = []
+        for clause in formula:
+            for var in clause:
+                if var in stand_sol[1]:
+                    if is_neg(var):
+                        vs.append(neg(var))
+                    else:
+                        vs.append(var)
+
+        vs = list(set(vs))
+        for i in range(len(vs) - 1):
+            print(vs[i] + "=" + ("T" if stand_sol[1][vs[i]] else "F"), end=",")
+        print(vs[-1] + "=" + ("T" if stand_sol[1][vs[-1]] else "F"))
+    print("$")
 
 main(sys.argv)
